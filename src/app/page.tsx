@@ -93,8 +93,8 @@ export default function ScreenerPage() {
     const reader = new FileReader();
     reader.onload = (e) => {
         const data = e.target?.result;
-        if (typeof data === 'string') {
-          // This should not happen with readAsBinaryString
+        if (!data) {
+          toast({ variant: 'destructive', title: 'Error', description: 'Failed to read file.' });
           return;
         }
         const workbook = XLSX.read(data, { type: 'binary' });
@@ -111,6 +111,9 @@ export default function ScreenerPage() {
         
         if (lowercasedJson.length > 0 && (!lowercasedJson[0].hasOwnProperty('title') || !lowercasedJson[0].hasOwnProperty('abstract'))) {
             toast({ variant: 'destructive', title: 'Error', description: 'File must contain "title" and "abstract" columns.' });
+            setArticles([]);
+            setFileName('');
+            if (fileInputRef.current) fileInputRef.current.value = '';
             return;
         }
 
@@ -120,6 +123,7 @@ export default function ScreenerPage() {
         })).filter(a => a.title && a.abstract);
         
         setArticles(parsedArticles);
+        setClassifiedArticles([]);
         toast({ title: "File parsed successfully.", description: `${parsedArticles.length} articles loaded.`});
     };
     reader.onerror = () => {
@@ -175,7 +179,7 @@ export default function ScreenerPage() {
   }
   
   const showDataCard = !!criteria;
-  const showAnalysisButton = showDataCard && articles.length > 0 && !isLoading && classifiedArticles.length === 0;
+  const showAnalysisButton = showDataCard && articles.length > 0 && !isLoading;
   const showResults = classifiedArticles.length > 0 && !isLoading;
 
   return (

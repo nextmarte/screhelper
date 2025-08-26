@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -18,7 +18,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { Badge } from '@/components/ui/badge';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload, Ban } from 'lucide-react';
+import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload, Ban, RotateCcw } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
 const criteriaSchema = z.object({
@@ -63,6 +63,26 @@ export default function ScreenerPage() {
     name: 'exclusionCriteria',
   });
 
+  useEffect(() => {
+    try {
+      const savedCriteria = localStorage.getItem('screenerCriteria');
+      if (savedCriteria) {
+        const parsedCriteria: { inclusion: string[], exclusion: string[] } = JSON.parse(savedCriteria);
+        if (parsedCriteria.inclusion && parsedCriteria.exclusion) {
+          form.reset({
+            inclusionCriteria: parsedCriteria.inclusion.map(value => ({ value })),
+            exclusionCriteria: parsedCriteria.exclusion.map(value => ({ value })),
+          });
+          setCriteria(parsedCriteria);
+          toast({ title: "Loaded saved criteria." });
+        }
+      }
+    } catch (error) {
+      console.error("Failed to parse criteria from localStorage", error);
+    }
+  }, [form, toast]);
+
+
   function onCriteriaSubmit(data: CriteriaFormValues) {
     const formattedCriteria = {
       inclusion: data.inclusionCriteria.map(c => c.value),
@@ -70,11 +90,36 @@ export default function ScreenerPage() {
     };
     setCriteria(formattedCriteria);
     setClassifiedArticles([]);
+    
+    try {
+      localStorage.setItem('screenerCriteria', JSON.stringify(formattedCriteria));
+      toast({
+        title: "Criteria Set & Saved",
+        description: "Your criteria have been saved in this browser.",
+      });
+    } catch (error) {
+      console.error("Failed to save criteria to localStorage", error);
+      toast({
+        title: "Criteria Set",
+        description: "You can now load your articles for screening.",
+      });
+    }
+  }
+
+  function handleResetCriteria() {
+    form.reset({
+      inclusionCriteria: [{ value: '' }],
+      exclusionCriteria: [{ value: '' }],
+    });
+    setCriteria(null);
+    setClassifiedArticles([]);
+    localStorage.removeItem('screenerCriteria');
     toast({
-      title: "Criteria Set",
-      description: "You can now load your articles for screening.",
+      title: "Criteria Reset",
+      description: "Saved criteria have been cleared.",
     });
   }
+
 
   function handleLoadSampleData() {
     setArticles(sampleArticles);
@@ -180,13 +225,15 @@ export default function ScreenerPage() {
           }
         } catch (error) {
           console.error('Error classifying article:', error);
-          toast({
-            variant: 'destructive',
-            title: 'Analysis Error',
-            description: `An error occurred while classifying an article.`,
-          });
-          // Stop further processing on error
-          isCancelledRef.current = true;
+          if (!isCancelledRef.current) {
+            toast({
+              variant: 'destructive',
+              title: 'Analysis Error',
+              description: `An error occurred while classifying an article.`,
+            });
+            // Stop further processing on error
+            isCancelledRef.current = true;
+          }
         } finally {
           if (!isCancelledRef.current) {
             articlesProcessed++;
@@ -211,7 +258,7 @@ export default function ScreenerPage() {
       toast({
         variant: 'destructive',
         title: 'Analysis Interrupted',
-        description: 'The analysis process was cancelled by the user.',
+        description: 'The analysis process was cancelled or an error occurred.',
       });
     } else {
       toast({
@@ -244,7 +291,7 @@ export default function ScreenerPage() {
         <Card className="w-full">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><TestTube2 className="text-primary" />Define Criteria</CardTitle>
-            <CardDescription>Set your inclusion and exclusion criteria. The AI will use these to classify articles.</CardDescription>
+            <CardDescription>Set your inclusion and exclusion criteria. The AI will use these to classify articles. Your criteria are saved in your browser.</CardDescription>
           </CardHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onCriteriaSubmit)}>
@@ -299,8 +346,12 @@ export default function ScreenerPage() {
                   </Button>
                 </div>
               </CardContent>
-              <CardFooter>
-                <Button type="submit" className="w-full bg-primary hover:bg-primary/90">Set Criteria</Button>
+              <CardFooter className="flex-col gap-2">
+                <Button type="submit" className="w-full bg-primary hover:bg-primary/90">Set & Save Criteria</Button>
+                <Button type="button" variant="ghost" className="w-full" onClick={handleResetCriteria}>
+                  <RotateCcw className="mr-2 h-4 w-4"/>
+                  Reset Criteria
+                </Button>
               </CardFooter>
             </form>
           </Form>

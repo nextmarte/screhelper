@@ -110,7 +110,7 @@ export default function ScreenerPage() {
         );
         
         if (lowercasedJson.length > 0 && (!lowercasedJson[0].hasOwnProperty('title') || !lowercasedJson[0].hasOwnProperty('abstract'))) {
-            toast({ variant: 'destructive', title: 'Error', description: 'XLSX must contain "title" and "abstract" columns.' });
+            toast({ variant: 'destructive', title: 'Error', description: 'File must contain "title" and "abstract" columns.' });
             return;
         }
 
@@ -253,7 +253,7 @@ export default function ScreenerPage() {
             <Card className={`w-full transition-opacity duration-500 ${showDataCard ? 'opacity-100' : 'opacity-0'}`}>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2"><FlaskConical className="text-accent" />Load Articles</CardTitle>
-                    <CardDescription>Upload an XLSX file or use our sample set. The file must have 'title' and 'abstract' columns.</CardDescription>
+                    <CardDescription>Upload an XLSX/XLS file or use our sample set. The file must have 'title' and 'abstract' columns.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="flex flex-col items-center justify-center w-full">
@@ -261,15 +261,15 @@ export default function ScreenerPage() {
                             <div className="flex flex-col items-center justify-center pt-5 pb-6">
                                 <Upload className="w-8 h-8 mb-2 text-muted-foreground"/>
                                 <p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold">Click to upload</span> or drag and drop</p>
-                                <p className="text-xs text-muted-foreground">XLSX file</p>
+                                <p className="text-xs text-muted-foreground">XLSX or XLS file</p>
                             </div>
-                            <Input id="file-upload" ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".xlsx" />
+                            <Input id="file-upload" ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".xlsx, .xls" />
                         </label>
                         {fileName && <p className="mt-2 text-sm text-muted-foreground">Loaded file: {fileName}</p>}
                     </div>
                 </CardContent>
                 <CardFooter className="flex flex-col sm:flex-row gap-2">
-                    <Button onClick={() => fileInputRef.current?.click()} className="w-full" variant="secondary">Upload XLSX File</Button>
+                    <Button onClick={() => fileInputRef.current?.click()} className="w-full" variant="secondary">Upload File</Button>
                     <Button onClick={handleLoadSampleData} className="w-full" variant="outline">Use Sample Data</Button>
                 </CardFooter>
             </Card>

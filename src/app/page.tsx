@@ -18,7 +18,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { Badge } from '@/components/ui/badge';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload } from 'lucide-react';
+import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload, Ban } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
 const criteriaSchema = z.object({
@@ -41,6 +41,7 @@ export default function ScreenerPage() {
   const [progress, setProgress] = useState(0);
   const [fileName, setFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isCancelledRef = useRef(false);
 
   const form = useForm<CriteriaFormValues>({
     resolver: zodResolver(criteriaSchema),
@@ -142,12 +143,21 @@ export default function ScreenerPage() {
       return;
     }
 
+    isCancelledRef.current = false;
     setIsLoading(true);
     setProgress(0);
-    setClassifiedArticles([]);
     const results: ClassifiedArticle[] = [];
+    setClassifiedArticles(results);
 
     for (let i = 0; i < articles.length; i++) {
+      if (isCancelledRef.current) {
+        toast({
+          variant: "destructive",
+          title: "Analysis Interrupted",
+          description: "The analysis process was cancelled by the user.",
+        });
+        break;
+      }
       try {
         const article = articles[i];
         const classification = await classifyArticle({
@@ -157,6 +167,7 @@ export default function ScreenerPage() {
           exclusionCriteria: criteria.exclusion,
         });
         results.push({ ...article, classification });
+        setClassifiedArticles([...results]);
         setProgress(((i + 1) / articles.length) * 100);
       } catch (error) {
         console.error("Error classifying article:", error);
@@ -169,13 +180,20 @@ export default function ScreenerPage() {
         return;
       }
     }
+    
+    if (!isCancelledRef.current) {
+        toast({
+            title: "Analysis Complete",
+            description: "All articles have been classified.",
+        });
+    }
 
-    setClassifiedArticles(results);
     setIsLoading(false);
-    toast({
-        title: "Analysis Complete",
-        description: "All articles have been classified.",
-    });
+    setProgress(0);
+  }
+
+  function handleInterrupt() {
+    isCancelledRef.current = true;
   }
   
   const showDataCard = !!criteria;
@@ -298,6 +316,11 @@ export default function ScreenerPage() {
             <Progress value={progress} className="w-full" />
             <p className="text-center text-muted-foreground mt-2">{Math.round(progress)}% complete</p>
           </CardContent>
+          <CardFooter className="justify-center">
+            <Button variant="destructive" onClick={handleInterrupt}>
+                <Ban className="mr-2 h-4 w-4" /> Interrupt Analysis
+            </Button>
+          </CardFooter>
         </Card>
       )}
 

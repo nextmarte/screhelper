@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import * as XLSX from 'xlsx';
 
 import { classifyArticle, ClassifyArticleOutput } from '@/ai/flows/classify-article';
 import { sampleArticles, type Article } from '@/lib/data';
@@ -12,13 +13,12 @@ import { exportToCsv } from '@/lib/csv';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Loader2 } from 'lucide-react';
+import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
 const criteriaSchema = z.object({
@@ -36,10 +36,11 @@ export default function ScreenerPage() {
   const { toast } = useToast();
   const [criteria, setCriteria] = useState<{ inclusion: string[], exclusion: string[] } | null>(null);
   const [articles, setArticles] = useState<Article[]>([]);
-  const [csvInput, setCsvInput] = useState('');
   const [classifiedArticles, setClassifiedArticles] = useState<ClassifiedArticle[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [fileName, setFileName] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<CriteriaFormValues>({
     resolver: zodResolver(criteriaSchema),
@@ -74,35 +75,57 @@ export default function ScreenerPage() {
 
   function handleLoadSampleData() {
     setArticles(sampleArticles);
-    setCsvInput('');
+    setFileName('Sample Data');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
     toast({ title: "Sample data loaded."});
   }
   
-  function handleParseCsv() {
-    if (!csvInput.trim()) {
-        toast({ variant: 'destructive', title: 'Error', description: 'CSV data cannot be empty.' });
-        return;
-    }
-    const rows = csvInput.trim().split('\n');
-    const headers = rows.shift()?.split(',').map(h => h.trim().toLowerCase()) || [];
-    const titleIndex = headers.indexOf('title');
-    const abstractIndex = headers.indexOf('abstract');
-
-    if (titleIndex === -1 || abstractIndex === -1) {
-        toast({ variant: 'destructive', title: 'Error', description: 'CSV must contain "title" and "abstract" columns.' });
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+        toast({ variant: 'destructive', title: 'Error', description: 'No file selected.' });
         return;
     }
 
-    const parsedArticles = rows.map(row => {
-        const columns = row.split(','); // Simple CSV parsing
-        return {
-            title: columns[titleIndex] || '',
-            abstract: columns[abstractIndex] || '',
-        };
-    }).filter(a => a.title && a.abstract);
-    
-    setArticles(parsedArticles);
-    toast({ title: "CSV data parsed successfully."});
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const data = e.target?.result;
+        if (typeof data === 'string') {
+          // This should not happen with readAsBinaryString
+          return;
+        }
+        const workbook = XLSX.read(data, { type: 'binary' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json<any>(worksheet);
+
+        const lowercasedJson = json.map(row => 
+            Object.keys(row).reduce((acc, key) => {
+                acc[key.toLowerCase()] = row[key];
+                return acc;
+            }, {} as {[key: string]: any})
+        );
+        
+        if (lowercasedJson.length > 0 && (!lowercasedJson[0].hasOwnProperty('title') || !lowercasedJson[0].hasOwnProperty('abstract'))) {
+            toast({ variant: 'destructive', title: 'Error', description: 'XLSX must contain "title" and "abstract" columns.' });
+            return;
+        }
+
+        const parsedArticles = lowercasedJson.map(row => ({
+            title: row.title || '',
+            abstract: row.abstract || '',
+        })).filter(a => a.title && a.abstract);
+        
+        setArticles(parsedArticles);
+        toast({ title: "File parsed successfully.", description: `${parsedArticles.length} articles loaded.`});
+    };
+    reader.onerror = () => {
+        toast({ variant: 'destructive', title: 'Error', description: 'Failed to read file.' });
+    }
+    reader.readAsBinaryString(file);
   }
 
   async function handleRunAnalysis() {
@@ -230,18 +253,23 @@ export default function ScreenerPage() {
             <Card className={`w-full transition-opacity duration-500 ${showDataCard ? 'opacity-100' : 'opacity-0'}`}>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2"><FlaskConical className="text-accent" />Load Articles</CardTitle>
-                    <CardDescription>Paste CSV data or use our sample set. CSV must have 'title' and 'abstract' columns.</CardDescription>
+                    <CardDescription>Upload an XLSX file or use our sample set. The file must have 'title' and 'abstract' columns.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <Textarea
-                        placeholder="title,abstract&#10;Quantum computing...,This paper reviews..."
-                        className="min-h-[150px] font-code"
-                        value={csvInput}
-                        onChange={(e) => setCsvInput(e.target.value)}
-                    />
+                    <div className="flex flex-col items-center justify-center w-full">
+                        <label htmlFor="file-upload" className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer bg-muted hover:bg-muted/80">
+                            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                <Upload className="w-8 h-8 mb-2 text-muted-foreground"/>
+                                <p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold">Click to upload</span> or drag and drop</p>
+                                <p className="text-xs text-muted-foreground">XLSX file</p>
+                            </div>
+                            <Input id="file-upload" ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".xlsx" />
+                        </label>
+                        {fileName && <p className="mt-2 text-sm text-muted-foreground">Loaded file: {fileName}</p>}
+                    </div>
                 </CardContent>
                 <CardFooter className="flex flex-col sm:flex-row gap-2">
-                    <Button onClick={handleParseCsv} className="w-full" variant="secondary">Load from CSV</Button>
+                    <Button onClick={() => fileInputRef.current?.click()} className="w-full" variant="secondary">Upload XLSX File</Button>
                     <Button onClick={handleLoadSampleData} className="w-full" variant="outline">Use Sample Data</Button>
                 </CardFooter>
             </Card>
@@ -249,7 +277,7 @@ export default function ScreenerPage() {
             {showAnalysisButton && (
                 <div className="text-center transition-opacity duration-500">
                     <Button size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground" onClick={handleRunAnalysis}>
-                        <BrainCircuit className="mr-2 h-5 w-5" /> Run AI Analysis
+                        <BrainCircuit className="mr-2 h-5 w-5" /> Run AI Analysis ({articles.length} Articles)
                     </Button>
                 </div>
             )}

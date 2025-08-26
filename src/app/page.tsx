@@ -250,7 +250,7 @@ export default function ScreenerPage() {
         </Card>
         
         <div className="space-y-8">
-            <Card className={`w-full transition-opacity duration-500 ${showDataCard ? 'opacity-100' : 'opacity-0'}`}>
+            <Card className={`w-full transition-opacity duration-500 ${showDataCard ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2"><FlaskConical className="text-accent" />Load Articles</CardTitle>
                     <CardDescription>Upload an XLSX/XLS file or use our sample set. The file must have 'title' and 'abstract' columns.</CardDescription>

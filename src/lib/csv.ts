@@ -13,12 +13,13 @@ function escapeCsvCell(cell: string): string {
 }
 
 export function exportToCsv(articles: ClassifiedArticle[], criteria: {inclusion: string[], exclusion: string[]}) {
-  const headers = ['Title', 'Abstract', 'Classification', 'Reason'];
+  const headers = ['Title', 'Abstract', 'Classification', 'Reason', 'Criterion'];
   const rows = articles.map(article => [
     escapeCsvCell(article.title),
     escapeCsvCell(article.abstract),
     article.classification.include ? 'Include' : 'Exclude',
     escapeCsvCell(article.classification.reason),
+    escapeCsvCell(article.classification.criterion),
   ].join(','));
 
   const inclusionCriteria = criteria.inclusion.map(c => `- ${c}`).join('\n');

@@ -28,7 +28,14 @@ const ClassifyArticleOutputSchema = z.object({
     .describe(
       'Whether the article meets the inclusion criteria and does not meet the exclusion criteria.'
     ),
-  reason: z.string().describe('The reason for the classification.'),
+  reason: z
+    .string()
+    .describe('The reason for the classification, written in English.'),
+  criterion: z
+    .string()
+    .describe(
+      'The single, most relevant inclusion or exclusion criterion that justifies the classification.'
+    ),
 });
 export type ClassifyArticleOutput = z.infer<typeof ClassifyArticleOutputSchema>;
 
@@ -44,7 +51,12 @@ const prompt = ai.definePrompt({
   output: {schema: ClassifyArticleOutputSchema},
   prompt: `You are an expert researcher classifying scientific articles based on inclusion and exclusion criteria.
 
-  Analyze the title and abstract of the article and determine if it meets the inclusion criteria and does not meet the exclusion criteria. Return true for include if it meets the inclusion criteria and does not meet the exclusion criteria, and false otherwise.  Explain the reasoning for your classification.
+  Analyze the title and abstract of the article and determine if it meets the inclusion criteria and does not meet the exclusion criteria.
+
+  - Your response must be in English.
+  - Set 'include' to true if it meets all inclusion criteria and no exclusion criteria. Otherwise, set it to false.
+  - Provide a brief 'reason' for your decision.
+  - Identify the single, most relevant 'criterion' from the provided lists that is the primary reason for your classification.
 
   Title: {{{title}}}
   Abstract: {{{abstract}}}

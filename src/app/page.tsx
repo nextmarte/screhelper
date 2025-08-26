@@ -343,6 +343,7 @@ export default function ScreenerPage() {
                     <TableHead className="w-[30%]">Title</TableHead>
                     <TableHead className="w-[150px]">Classification</TableHead>
                     <TableHead>Reason</TableHead>
+                    <TableHead>Criterion</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -355,6 +356,7 @@ export default function ScreenerPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>{article.classification.reason}</TableCell>
+                      <TableCell>{article.classification.criterion}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

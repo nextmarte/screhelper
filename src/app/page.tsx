@@ -32,6 +32,8 @@ interface ClassifiedArticle extends Article {
   classification: ClassifyArticleOutput;
 }
 
+const CONCURRENT_REQUESTS = 5;
+
 export default function ScreenerPage() {
   const { toast } = useToast();
   const [criteria, setCriteria] = useState<{ inclusion: string[], exclusion: string[] } | null>(null);
@@ -136,64 +138,95 @@ export default function ScreenerPage() {
   async function handleRunAnalysis() {
     if (!criteria || articles.length === 0) {
       toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please set criteria and load articles before running analysis.",
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Please set criteria and load articles before running analysis.',
       });
       return;
     }
-
+  
     isCancelledRef.current = false;
     setIsLoading(true);
     setProgress(0);
+    setClassifiedArticles([]);
+  
     const results: ClassifiedArticle[] = [];
-    setClassifiedArticles(results);
-
-    for (let i = 0; i < articles.length; i++) {
-      if (isCancelledRef.current) {
-        toast({
-          variant: "destructive",
-          title: "Analysis Interrupted",
-          description: "The analysis process was cancelled by the user.",
-        });
-        break;
-      }
-      try {
-        const article = articles[i];
-        const classification = await classifyArticle({
-          title: article.title,
-          abstract: article.abstract,
-          inclusionCriteria: criteria.inclusion,
-          exclusionCriteria: criteria.exclusion,
-        });
-        results.push({ ...article, classification });
-        setClassifiedArticles([...results]);
-        setProgress(((i + 1) / articles.length) * 100);
-      } catch (error) {
-        console.error("Error classifying article:", error);
-        toast({
-          variant: "destructive",
-          title: "Analysis Error",
-          description: `An error occurred while classifying article ${i + 1}.`,
-        });
-        setIsLoading(false);
-        return;
-      }
-    }
+    let articlesProcessed = 0;
     
-    if (!isCancelledRef.current) {
-        toast({
-            title: "Analysis Complete",
-            description: "All articles have been classified.",
-        });
-    }
+    const articlesToProcess = [...articles];
+  
+    const processBatch = async () => {
+      const batch = articlesToProcess.splice(0, CONCURRENT_REQUESTS);
+      if (batch.length === 0) return;
+  
+      await Promise.all(batch.map(async (article) => {
+        if (isCancelledRef.current) return;
+  
+        try {
+          const classification = await classifyArticle({
+            title: article.title,
+            abstract: article.abstract,
+            inclusionCriteria: criteria.inclusion,
+            exclusionCriteria: criteria.exclusion,
+          });
 
+          if (!isCancelledRef.current) {
+            const classifiedArticle = { ...article, classification };
+            // This state update is not ideal in a loop, but for this UI it's acceptable
+            // to show results as they come. A better approach for very large datasets
+            // might be to batch updates.
+            setClassifiedArticles(prev => [...prev, classifiedArticle]);
+            results.push(classifiedArticle);
+          }
+        } catch (error) {
+          console.error('Error classifying article:', error);
+          toast({
+            variant: 'destructive',
+            title: 'Analysis Error',
+            description: `An error occurred while classifying an article.`,
+          });
+          // Stop further processing on error
+          isCancelledRef.current = true;
+        } finally {
+          if (!isCancelledRef.current) {
+            articlesProcessed++;
+            setProgress((articlesProcessed / articles.length) * 100);
+          }
+        }
+      }));
+
+      if (!isCancelledRef.current && articlesToProcess.length > 0) {
+        await processBatch();
+      }
+    };
+  
+    await processBatch();
+
+    if (isCancelledRef.current && !isLoading) {
+       // Avoid setting state if the component is already unmounted or analysis was stopped.
+       return;
+    }
+  
+    if (isCancelledRef.current) {
+      toast({
+        variant: 'destructive',
+        title: 'Analysis Interrupted',
+        description: 'The analysis process was cancelled by the user.',
+      });
+    } else {
+      toast({
+        title: 'Analysis Complete',
+        description: 'All articles have been classified.',
+      });
+    }
+  
     setIsLoading(false);
-    setProgress(0);
+    // Do not reset progress to 0 immediately to let user see 100%
   }
 
   function handleInterrupt() {
     isCancelledRef.current = true;
+    setIsLoading(false);
   }
   
   const showDataCard = !!criteria;
@@ -230,6 +263,7 @@ export default function ScreenerPage() {
                               <Input placeholder="e.g., must be a clinical trial" {...field} />
                             </FormControl>
                             {inclusionFields.length > 1 && <Button type="button" variant="ghost" size="icon" onClick={() => removeInclusion(index)}><XCircle className="h-4 w-4 text-destructive" /></Button>}
+                            <FormMessage />
                           </FormItem>
                         )}
                       />
@@ -254,6 +288,7 @@ export default function ScreenerPage() {
                               <Input placeholder="e.g., studies on animals" {...field} />
                             </FormControl>
                             {exclusionFields.length > 1 && <Button type="button" variant="ghost" size="icon" onClick={() => removeExclusion(index)}><XCircle className="h-4 w-4 text-destructive" /></Button>}
+                            <FormMessage />
                           </FormItem>
                         )}
                       />
@@ -347,7 +382,8 @@ export default function ScreenerPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {classifiedArticles.map((article, index) => (
+                  {classifiedArticles.sort((a,b) => articles.findIndex(art => art.title === a.title) - articles.findIndex(art => art.title === b.title))
+                  .map((article, index) => (
                     <TableRow key={index}>
                       <TableCell className="font-medium">{article.title}</TableCell>
                       <TableCell>
@@ -368,3 +404,5 @@ export default function ScreenerPage() {
     </main>
   );
 }
+
+    

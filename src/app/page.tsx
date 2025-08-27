@@ -20,6 +20,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { useToast } from '@/hooks/use-toast';
 import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload, Ban, RotateCcw } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const criteriaSchema = z.object({
   inclusionCriteria: z.array(z.object({ value: z.string().min(1, 'Criterion cannot be empty.') })).min(1, 'At least one inclusion criterion is required.'),
@@ -42,6 +43,7 @@ export default function ScreenerPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [fileName, setFileName] = useState('');
+  const [activeTab, setActiveTab] = useState("setup");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isCancelledRef = useRef(false);
 
@@ -190,6 +192,7 @@ export default function ScreenerPage() {
       return;
     }
   
+    setActiveTab("results");
     isCancelledRef.current = false;
     setIsLoading(true);
     setProgress(0);
@@ -287,173 +290,181 @@ export default function ScreenerPage() {
         <p className="text-lg text-muted-foreground mt-2">AI-Powered Screening for Scientific Literature Reviews</p>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><TestTube2 className="text-primary" />Define Criteria</CardTitle>
-            <CardDescription>Set your inclusion and exclusion criteria. The AI will use these to classify articles. Your criteria are saved in your browser.</CardDescription>
-          </CardHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onCriteriaSubmit)}>
-              <CardContent className="space-y-6">
-                <div>
-                  <h3 className="font-semibold mb-2 text-primary">Inclusion Criteria</h3>
-                  <div className="space-y-2">
-                    {inclusionFields.map((field, index) => (
-                      <FormField
-                        key={field.id}
-                        control={form.control}
-                        name={`inclusionCriteria.${index}.value`}
-                        render={({ field }) => (
-                          <FormItem className="flex items-center gap-2">
-                            <FormControl>
-                              <Input placeholder="e.g., must be a clinical trial" {...field} />
-                            </FormControl>
-                            {inclusionFields.length > 1 && <Button type="button" variant="ghost" size="icon" onClick={() => removeInclusion(index)}><XCircle className="h-4 w-4 text-destructive" /></Button>}
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    ))}
-                  </div>
-                  <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => appendInclusion({ value: '' })}>
-                    <PlusCircle className="mr-2 h-4 w-4" /> Add Inclusion Criterion
-                  </Button>
-                </div>
-                <Separator />
-                <div>
-                  <h3 className="font-semibold mb-2 text-primary">Exclusion Criteria</h3>
-                  <div className="space-y-2">
-                    {exclusionFields.map((field, index) => (
-                      <FormField
-                        key={field.id}
-                        control={form.control}
-                        name={`exclusionCriteria.${index}.value`}
-                        render={({ field }) => (
-                          <FormItem className="flex items-center gap-2">
-                            <FormControl>
-                              <Input placeholder="e.g., studies on animals" {...field} />
-                            </FormControl>
-                            {exclusionFields.length > 1 && <Button type="button" variant="ghost" size="icon" onClick={() => removeExclusion(index)}><XCircle className="h-4 w-4 text-destructive" /></Button>}
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    ))}
-                  </div>
-                  <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => appendExclusion({ value: '' })}>
-                    <PlusCircle className="mr-2 h-4 w-4" /> Add Exclusion Criterion
-                  </Button>
-                </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="setup">Setup</TabsTrigger>
+          <TabsTrigger value="results" disabled={!showDataCard && classifiedArticles.length === 0}>Results</TabsTrigger>
+        </TabsList>
+        <TabsContent value="setup" className="space-y-8 mt-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <Card className="w-full">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><TestTube2 className="text-primary" />Define Criteria</CardTitle>
+                <CardDescription>Set your inclusion and exclusion criteria. The AI will use these to classify articles. Your criteria are saved in your browser.</CardDescription>
+              </CardHeader>
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onCriteriaSubmit)}>
+                  <CardContent className="space-y-6">
+                    <div>
+                      <h3 className="font-semibold mb-2 text-primary">Inclusion Criteria</h3>
+                      <div className="space-y-2">
+                        {inclusionFields.map((field, index) => (
+                          <FormField
+                            key={field.id}
+                            control={form.control}
+                            name={`inclusionCriteria.${index}.value`}
+                            render={({ field }) => (
+                              <FormItem className="flex items-center gap-2">
+                                <FormControl>
+                                  <Input placeholder="e.g., must be a clinical trial" {...field} />
+                                </FormControl>
+                                {inclusionFields.length > 1 && <Button type="button" variant="ghost" size="icon" onClick={() => removeInclusion(index)}><XCircle className="h-4 w-4 text-destructive" /></Button>}
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        ))}
+                      </div>
+                      <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => appendInclusion({ value: '' })}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Add Inclusion Criterion
+                      </Button>
+                    </div>
+                    <Separator />
+                    <div>
+                      <h3 className="font-semibold mb-2 text-primary">Exclusion Criteria</h3>
+                      <div className="space-y-2">
+                        {exclusionFields.map((field, index) => (
+                          <FormField
+                            key={field.id}
+                            control={form.control}
+                            name={`exclusionCriteria.${index}.value`}
+                            render={({ field }) => (
+                              <FormItem className="flex items-center gap-2">
+                                <FormControl>
+                                  <Input placeholder="e.g., studies on animals" {...field} />
+                                </FormControl>
+                                {exclusionFields.length > 1 && <Button type="button" variant="ghost" size="icon" onClick={() => removeExclusion(index)}><XCircle className="h-4 w-4 text-destructive" /></Button>}
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        ))}
+                      </div>
+                      <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => appendExclusion({ value: '' })}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Add Exclusion Criterion
+                      </Button>
+                    </div>
+                  </CardContent>
+                  <CardFooter className="flex-col gap-2">
+                    <Button type="submit" className="w-full bg-primary hover:bg-primary/90">Set & Save Criteria</Button>
+                    <Button type="button" variant="ghost" className="w-full" onClick={handleResetCriteria}>
+                      <RotateCcw className="mr-2 h-4 w-4"/>
+                      Reset Criteria
+                    </Button>
+                  </CardFooter>
+                </form>
+              </Form>
+            </Card>
+            
+            <div className="space-y-8">
+                <Card className={`w-full transition-opacity duration-500 ${showDataCard ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><FlaskConical className="text-accent" />Load Articles</CardTitle>
+                        <CardDescription>Upload an XLSX/XLS file or use our sample set. The file must have 'title' and 'abstract' columns.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex flex-col items-center justify-center w-full">
+                            <label htmlFor="file-upload" className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer bg-muted hover:bg-muted/80">
+                                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                    <Upload className="w-8 h-8 mb-2 text-muted-foreground"/>
+                                    <p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold">Click to upload</span> or drag and drop</p>
+                                    <p className="text-xs text-muted-foreground">XLSX or XLS file</p>
+                                </div>
+                                <Input id="file-upload" ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".xlsx, .xls" />
+                            </label>
+                            {fileName && <p className="mt-2 text-sm text-muted-foreground">Loaded file: {fileName}</p>}
+                        </div>
+                    </CardContent>
+                    <CardFooter className="flex flex-col sm:flex-row gap-2">
+                        <Button onClick={() => fileInputRef.current?.click()} className="w-full" variant="secondary">Upload File</Button>
+                        <Button onClick={handleLoadSampleData} className="w-full" variant="outline">Use Sample Data</Button>
+                    </CardFooter>
+                </Card>
+
+                {showAnalysisButton && (
+                    <div className="text-center transition-opacity duration-500">
+                        <Button size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground" onClick={handleRunAnalysis}>
+                            <BrainCircuit className="mr-2 h-5 w-5" /> Run AI Analysis ({articles.length} Articles)
+                        </Button>
+                    </div>
+                )}
+            </div>
+          </div>
+        </TabsContent>
+        <TabsContent value="results" className="mt-8">
+          {isLoading && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Analysis in Progress...</CardTitle>
+                <CardDescription>The AI is classifying your articles. Please wait.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Progress value={progress} className="w-full" />
+                <p className="text-center text-muted-foreground mt-2">{Math.round(progress)}% complete</p>
               </CardContent>
-              <CardFooter className="flex-col gap-2">
-                <Button type="submit" className="w-full bg-primary hover:bg-primary/90">Set & Save Criteria</Button>
-                <Button type="button" variant="ghost" className="w-full" onClick={handleResetCriteria}>
-                  <RotateCcw className="mr-2 h-4 w-4"/>
-                  Reset Criteria
+              <CardFooter className="justify-center">
+                <Button variant="destructive" onClick={handleInterrupt}>
+                    <Ban className="mr-2 h-4 w-4" /> Interrupt Analysis
                 </Button>
               </CardFooter>
-            </form>
-          </Form>
-        </Card>
-        
-        <div className="space-y-8">
-            <Card className={`w-full transition-opacity duration-500 ${showDataCard ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><FlaskConical className="text-accent" />Load Articles</CardTitle>
-                    <CardDescription>Upload an XLSX/XLS file or use our sample set. The file must have 'title' and 'abstract' columns.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="flex flex-col items-center justify-center w-full">
-                        <label htmlFor="file-upload" className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer bg-muted hover:bg-muted/80">
-                            <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                <Upload className="w-8 h-8 mb-2 text-muted-foreground"/>
-                                <p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold">Click to upload</span> or drag and drop</p>
-                                <p className="text-xs text-muted-foreground">XLSX or XLS file</p>
-                            </div>
-                            <Input id="file-upload" ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".xlsx, .xls" />
-                        </label>
-                        {fileName && <p className="mt-2 text-sm text-muted-foreground">Loaded file: {fileName}</p>}
-                    </div>
-                </CardContent>
-                <CardFooter className="flex flex-col sm:flex-row gap-2">
-                    <Button onClick={() => fileInputRef.current?.click()} className="w-full" variant="secondary">Upload File</Button>
-                    <Button onClick={handleLoadSampleData} className="w-full" variant="outline">Use Sample Data</Button>
-                </CardFooter>
             </Card>
+          )}
 
-            {showAnalysisButton && (
-                <div className="text-center transition-opacity duration-500">
-                    <Button size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground" onClick={handleRunAnalysis}>
-                        <BrainCircuit className="mr-2 h-5 w-5" /> Run AI Analysis ({articles.length} Articles)
-                    </Button>
+          {showResults && (
+            <Card>
+              <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between">
+                <div>
+                  <CardTitle>Classification Results</CardTitle>
+                  <CardDescription>Review the AI's classification for each article.</CardDescription>
                 </div>
-            )}
-        </div>
-      </div>
-
-      {isLoading && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Analysis in Progress...</CardTitle>
-            <CardDescription>The AI is classifying your articles. Please wait.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Progress value={progress} className="w-full" />
-            <p className="text-center text-muted-foreground mt-2">{Math.round(progress)}% complete</p>
-          </CardContent>
-          <CardFooter className="justify-center">
-            <Button variant="destructive" onClick={handleInterrupt}>
-                <Ban className="mr-2 h-4 w-4" /> Interrupt Analysis
-            </Button>
-          </CardFooter>
-        </Card>
-      )}
-
-      {showResults && (
-        <Card>
-          <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between">
-            <div>
-              <CardTitle>Classification Results</CardTitle>
-              <CardDescription>Review the AI's classification for each article.</CardDescription>
-            </div>
-            <Button onClick={() => exportToCsv(classifiedArticles, criteria!)} className="mt-4 md:mt-0">
-              <FileDown className="mr-2 h-4 w-4" /> Export to CSV
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[30%]">Title</TableHead>
-                    <TableHead className="w-[150px]">Classification</TableHead>
-                    <TableHead>Reason</TableHead>
-                    <TableHead>Criterion</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {classifiedArticles.sort((a,b) => articles.findIndex(art => art.title === a.title) - articles.findIndex(art => art.title === b.title))
-                  .map((article, index) => (
-                    <TableRow key={index}>
-                      <TableCell className="font-medium">{article.title}</TableCell>
-                      <TableCell>
-                        <Badge variant={article.classification.include ? 'default' : 'destructive'} className={article.classification.include ? 'bg-green-600' : ''}>
-                          {article.classification.include ? 'Include' : 'Exclude'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{article.classification.reason}</TableCell>
-                      <TableCell>{article.classification.criterion}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                <Button onClick={() => exportToCsv(classifiedArticles, criteria!)} className="mt-4 md:mt-0">
+                  <FileDown className="mr-2 h-4 w-4" /> Export to CSV
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[30%]">Title</TableHead>
+                        <TableHead className="w-[150px]">Classification</TableHead>
+                        <TableHead>Reason</TableHead>
+                        <TableHead>Criterion</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {classifiedArticles.sort((a,b) => articles.findIndex(art => art.title === a.title) - articles.findIndex(art => art.title === b.title))
+                      .map((article, index) => (
+                        <TableRow key={index}>
+                          <TableCell className="font-medium">{article.title}</TableCell>
+                          <TableCell>
+                            <Badge variant={article.classification.include ? 'default' : 'destructive'} className={article.classification.include ? 'bg-green-600' : ''}>
+                              {article.classification.include ? 'Include' : 'Exclude'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{article.classification.reason}</TableCell>
+                          <TableCell>{article.classification.criterion}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
     </main>
   );
 }
 
-    

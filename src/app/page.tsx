@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -19,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload, Ban, RotateCcw, Settings } from 'lucide-react';
+import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload, Ban, RotateCcw, Settings, ChevronDown, ChevronUp } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -207,6 +207,7 @@ export default function ScreenerPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isCancelledRef = useRef(false);
   const [originalArticleData, setOriginalArticleData] = useState<Record<string, any>[]>([]); // Novo estado para dados originais
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
   const form = useForm<CriteriaFormValues>({
     resolver: zodResolver(criteriaSchema),
@@ -544,6 +545,42 @@ export default function ScreenerPage() {
     setIsLoading(false);
   }
   
+  function handleClassificationChange(index: number, newInclude: boolean) {
+    setClassifiedArticles(prev => 
+      prev.map((article, i) => 
+        i === index 
+          ? {
+              ...article,
+              classification: {
+                ...article.classification,
+                include: newInclude,
+                reason: newInclude 
+                  ? 'Manually changed to Include by user' 
+                  : 'Manually changed to Exclude by user'
+              }
+            }
+          : article
+      )
+    );
+    
+    toast({
+      title: 'Classification Updated',
+      description: `Article ${newInclude ? 'included' : 'excluded'} manually.`,
+    });
+  }
+
+  function handleRowExpand(index: number) {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  }
+  
   const showDataCard = !!criteria;
   const showAnalysisButton = showDataCard && articles.length > 0 && !isLoading;
   const showResults = classifiedArticles.length > 0 && !isLoading;
@@ -769,25 +806,92 @@ export default function ScreenerPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-[50px]"></TableHead>
                         <TableHead className="w-[30%]">Title</TableHead>
                         <TableHead className="w-[150px]">Classification</TableHead>
                         <TableHead>Reason</TableHead>
                         <TableHead>Criterion</TableHead>
+                        <TableHead className="w-[120px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {classifiedArticles.sort((a,b) => articles.findIndex(art => art.title === a.title) - articles.findIndex(art => art.title === b.title))
                       .map((article, index) => (
-                        <TableRow key={index}>
-                          <TableCell className="font-medium">{article.title}</TableCell>
-                          <TableCell>
-                            <Badge variant={article.classification.include ? 'default' : 'destructive'} className={article.classification.include ? 'bg-green-600' : ''}>
-                              {article.classification.include ? 'Include' : 'Exclude'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{article.classification.reason}</TableCell>
-                          <TableCell>{article.classification.criterion}</TableCell>
-                        </TableRow>
+                        <React.Fragment key={`article-${index}`}>
+                          <TableRow 
+                            className="hover:bg-muted/50 cursor-pointer transition-colors"
+                            onClick={() => handleRowExpand(index)}
+                          >
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRowExpand(index);
+                                }}
+                              >
+                                {expandedRows.has(index) ? (
+                                  <ChevronUp className="h-4 w-4" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </TableCell>
+                            <TableCell className="font-medium">{article.title}</TableCell>
+                            <TableCell>
+                              <Badge variant={article.classification.include ? 'default' : 'destructive'} className={article.classification.include ? 'bg-green-600' : ''}>
+                                {article.classification.include ? 'Include' : 'Exclude'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{article.classification.reason}</TableCell>
+                            <TableCell>{article.classification.criterion}</TableCell>
+                            <TableCell onClick={(e) => e.stopPropagation()}>
+                              <div className="flex gap-1">
+                                <Button
+                                  size="sm"
+                                  variant={article.classification.include ? "default" : "outline"}
+                                  onClick={() => handleClassificationChange(index, true)}
+                                  className={article.classification.include ? "bg-green-600 hover:bg-green-700" : "hover:bg-green-50"}
+                                >
+                                  Include
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant={!article.classification.include ? "destructive" : "outline"}
+                                  onClick={() => handleClassificationChange(index, false)}
+                                  className={!article.classification.include ? "" : "hover:bg-red-50"}
+                                >
+                                  Exclude
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          {expandedRows.has(index) && (
+                            <TableRow className="border-b-0">
+                              <TableCell></TableCell>
+                              <TableCell colSpan={5} className="bg-muted/30 p-4">
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Abstract</h4>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleRowExpand(index)}
+                                      className="h-6 w-6 p-0"
+                                    >
+                                      <XCircle className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                  <div className="text-sm leading-relaxed text-foreground bg-background rounded-md p-3 border">
+                                    {article.abstract}
+                                  </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
                       ))}
                     </TableBody>
                   </Table>

@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 
 import { classifyArticle, ClassifyArticleOutput } from '@/ai/flows/classify-article';
 import { sampleArticles, type Article } from '@/lib/data';
-import { exportToCsv } from '@/lib/csv';
+import { exportToXlsx } from '@/lib/csv';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
@@ -17,8 +17,9 @@ import { Progress } from '@/components/ui/progress';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload, Ban, RotateCcw } from 'lucide-react';
+import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload, Ban, RotateCcw, Settings } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -31,9 +32,164 @@ type CriteriaFormValues = z.infer<typeof criteriaSchema>;
 
 interface ClassifiedArticle extends Article {
   classification: ClassifyArticleOutput;
+  originalData?: Record<string, any>; // Adicionar para preservar dados originais
 }
 
-const CONCURRENT_REQUESTS = 5;
+type AIProvider = 'gemini' | 'ollama';
+
+interface OllamaModel {
+  model: string;
+  modified_at: string;
+  size: number;
+  digest: string;
+  details: {
+    parent_model: string;
+    format: string;
+    family: string;
+    families: string[] | null;
+    parameter_size: string;
+    quantization_level: string;
+  };
+}
+
+interface OllamaResponse {
+  role: string;
+  content: string;
+  thinking: string | null;
+  images: any[] | null;
+  tool_name: string | null;
+  tool_calls: any[] | null;
+}
+
+const CONCURRENT_REQUESTS = 2; // Reduzindo requisições simultâneas para evitar sobrecarga
+const OLLAMA_PROXY_URL = '/api/ollama'; // Mudando para usar o proxy
+
+async function classifyWithOllama(
+  article: { title: string; abstract: string },
+  criteria: { inclusion: string[]; exclusion: string[] },
+  model: string
+): Promise<ClassifyArticleOutput> {
+  const prompt = `
+Você é um assistente especializado em revisão sistemática de literatura científica. Sua tarefa é classificar artigos científicos com base em critérios de inclusão e exclusão específicos.
+
+CRITÉRIOS DE INCLUSÃO:
+${criteria.inclusion.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+CRITÉRIOS DE EXCLUSÃO:
+${criteria.exclusion.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+ARTIGO PARA ANÁLISE:
+Título: ${article.title}
+Resumo: ${article.abstract}
+
+Analise este artigo e determine se ele deve ser INCLUÍDO ou EXCLUÍDO da revisão sistemática. 
+
+Responda APENAS no seguinte formato JSON válido:
+{
+  "include": true/false,
+  "reason": "Explicação clara e concisa da decisão",
+  "criterion": "Número e texto do critério específico que levou à decisão"
+}
+`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // Aumentando para 2 minutos
+    
+    console.log(`Starting classification for article: ${article.title.substring(0, 50)}...`);
+    const startTime = Date.now();
+    
+    const response = await fetch(`${OLLAMA_PROXY_URL}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: model,
+        message: prompt,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    
+    const responseTime = Date.now() - startTime;
+    console.log(`Response received in ${responseTime}ms`);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result: OllamaResponse = await response.json();
+    console.log(`Classification completed in ${Date.now() - startTime}ms`);
+    
+    // Extrair JSON da resposta
+    const jsonMatch = result.content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Invalid response format from Ollama');
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    return {
+      include: Boolean(parsed.include),
+      reason: String(parsed.reason || 'No reason provided'),
+      criterion: String(parsed.criterion || 'No criterion specified'),
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Timeout: Classificação demorou mais de 2 minutos. Tente usar um modelo menor ou reduzir o texto.');
+    }
+    console.error('Error calling Ollama API:', error);
+    throw new Error(`Failed to classify article with Ollama: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function fetchOllamaModels(): Promise<OllamaModel[]> {
+  try {
+    console.log('Attempting to fetch models via proxy:', `${OLLAMA_PROXY_URL}/models`);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    
+    const response = await fetch(`${OLLAMA_PROXY_URL}/models`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    console.log('Response status:', response.status);
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    console.log('Received data:', data);
+    
+    const models = data.models || [];
+    console.log('Filtered text models:', models);
+    return models;
+  } catch (error) {
+    console.error('Detailed error:', error);
+    
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Timeout: Ollama API não respondeu em 10 segundos');
+      }
+      if (error.message.includes('Failed to fetch')) {
+        throw new Error('Não foi possível conectar ao servidor. Verifique se o Ollama está rodando em 127.0.0.1:8566');
+      }
+    }
+    
+    throw error;
+  }
+}
 
 export default function ScreenerPage() {
   const { toast } = useToast();
@@ -44,8 +200,13 @@ export default function ScreenerPage() {
   const [progress, setProgress] = useState(0);
   const [fileName, setFileName] = useState('');
   const [activeTab, setActiveTab] = useState("setup");
+  const [aiProvider, setAiProvider] = useState<AIProvider>('gemini');
+  const [selectedOllamaModel, setSelectedOllamaModel] = useState<string>('');
+  const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isCancelledRef = useRef(false);
+  const [originalArticleData, setOriginalArticleData] = useState<Record<string, any>[]>([]); // Novo estado para dados originais
 
   const form = useForm<CriteriaFormValues>({
     resolver: zodResolver(criteriaSchema),
@@ -68,6 +229,9 @@ export default function ScreenerPage() {
   useEffect(() => {
     try {
       const savedCriteria = localStorage.getItem('screenerCriteria');
+      const savedProvider = localStorage.getItem('aiProvider') as AIProvider;
+      const savedOllamaModel = localStorage.getItem('selectedOllamaModel');
+      
       if (savedCriteria) {
         const parsedCriteria: { inclusion: string[], exclusion: string[] } = JSON.parse(savedCriteria);
         if (parsedCriteria.inclusion && parsedCriteria.exclusion) {
@@ -79,11 +243,82 @@ export default function ScreenerPage() {
           toast({ title: "Loaded saved criteria." });
         }
       }
+
+      if (savedProvider) {
+        setAiProvider(savedProvider);
+      }
+
+      if (savedOllamaModel) {
+        setSelectedOllamaModel(savedOllamaModel);
+      }
     } catch (error) {
-      console.error("Failed to parse criteria from localStorage", error);
+      console.error("Failed to parse saved data from localStorage", error);
     }
   }, [form, toast]);
 
+  useEffect(() => {
+    if (aiProvider === 'ollama') {
+      loadOllamaModels();
+    }
+  }, [aiProvider]);
+
+  async function loadOllamaModels() {
+    setIsLoadingModels(true);
+    try {
+      console.log('Loading Ollama models via proxy...');
+      
+      const models = await fetchOllamaModels();
+      console.log('Models loaded successfully:', models);
+      setOllamaModels(models);
+      
+      if (models.length > 0 && !selectedOllamaModel) {
+        setSelectedOllamaModel(models[0].model);
+        localStorage.setItem('selectedOllamaModel', models[0].model);
+        console.log('Auto-selected model:', models[0].model);
+        
+        toast({
+          title: 'Modelos carregados com sucesso',
+          description: `${models.length} modelos encontrados. Selecionado: ${models[0].model}`,
+        });
+      }
+      
+      if (models.length === 0) {
+        toast({
+          variant: 'destructive',
+          title: 'Nenhum modelo encontrado',
+          description: 'Baixe um modelo no Ollama usando: ollama pull llama3',
+        });
+      }
+    } catch (error) {
+      console.error('Error in loadOllamaModels:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+      
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao carregar modelos do Ollama',
+        description: errorMessage,
+      });
+      
+      // Reset para Gemini se Ollama falhar
+      setAiProvider('gemini');
+      localStorage.setItem('aiProvider', 'gemini');
+    } finally {
+      setIsLoadingModels(false);
+    }
+  }
+
+  function handleProviderChange(provider: AIProvider) {
+    setAiProvider(provider);
+    localStorage.setItem('aiProvider', provider);
+    if (provider === 'ollama') {
+      loadOllamaModels();
+    }
+  }
+
+  function handleOllamaModelChange(model: string) {
+    setSelectedOllamaModel(model);
+    localStorage.setItem('selectedOllamaModel', model);
+  }
 
   function onCriteriaSubmit(data: CriteriaFormValues) {
     const formattedCriteria = {
@@ -121,7 +356,6 @@ export default function ScreenerPage() {
       description: "Saved criteria have been cleared.",
     });
   }
-
 
   function handleLoadSampleData() {
     setArticles(sampleArticles);
@@ -167,6 +401,9 @@ export default function ScreenerPage() {
             return;
         }
 
+        // Preservar dados originais completos
+        setOriginalArticleData(lowercasedJson);
+
         const parsedArticles = lowercasedJson.map(row => ({
             title: row.title || '',
             abstract: row.abstract || '',
@@ -191,7 +428,24 @@ export default function ScreenerPage() {
       });
       return;
     }
+
+    if (aiProvider === 'ollama' && !selectedOllamaModel) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Please select an Ollama model.',
+      });
+      return;
+    }
   
+    // Aviso sobre tempo de processamento para Ollama
+    if (aiProvider === 'ollama') {
+      toast({
+        title: 'Análise iniciada com Ollama',
+        description: `Processamento local pode ser mais lento. Timeout: 2 minutos por artigo.`,
+      });
+    }
+    
     setActiveTab("results");
     isCancelledRef.current = false;
     setIsLoading(true);
@@ -211,31 +465,44 @@ export default function ScreenerPage() {
         if (isCancelledRef.current) return;
   
         try {
-          const classification = await classifyArticle({
-            title: article.title,
-            abstract: article.abstract,
-            inclusionCriteria: criteria.inclusion,
-            exclusionCriteria: criteria.exclusion,
-          });
+          let classification: ClassifyArticleOutput;
+          
+          if (aiProvider === 'gemini') {
+            classification = await classifyArticle({
+              title: article.title,
+              abstract: article.abstract,
+              inclusionCriteria: criteria.inclusion,
+              exclusionCriteria: criteria.exclusion,
+            });
+          } else {
+            classification = await classifyWithOllama(
+              { title: article.title, abstract: article.abstract },
+              criteria,
+              selectedOllamaModel
+            );
+          }
 
           if (!isCancelledRef.current) {
-            const classifiedArticle = { ...article, classification };
-            // This state update is not ideal in a loop, but for this UI it's acceptable
-            // to show results as they come. A better approach for very large datasets
-            // might be to batch updates.
+            const classifiedArticle = { 
+              ...article, 
+              classification,
+              originalData: originalArticleData.find(original => 
+                original.title === article.title && original.abstract === article.abstract
+              )
+            };
             setClassifiedArticles(prev => [...prev, classifiedArticle]);
             results.push(classifiedArticle);
           }
         } catch (error) {
           console.error('Error classifying article:', error);
           if (!isCancelledRef.current) {
+            const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
             toast({
               variant: 'destructive',
-              title: 'Analysis Error',
-              description: `An error occurred while classifying an article.`,
+              title: 'Erro na análise',
+              description: `Erro ao classificar artigo: ${errorMessage}`,
             });
-            // Stop further processing on error
-            isCancelledRef.current = true;
+            // Não cancelar toda a análise por um erro, apenas pular este artigo
           }
         } finally {
           if (!isCancelledRef.current) {
@@ -253,7 +520,6 @@ export default function ScreenerPage() {
     await processBatch();
 
     if (isCancelledRef.current && !isLoading) {
-       // Avoid setting state if the component is already unmounted or analysis was stopped.
        return;
     }
   
@@ -266,12 +532,11 @@ export default function ScreenerPage() {
     } else {
       toast({
         title: 'Analysis Complete',
-        description: 'All articles have been classified.',
+        description: `Classificação concluída. ${results.length} de ${articles.length} artigos processados.`,
       });
     }
   
     setIsLoading(false);
-    // Do not reset progress to 0 immediately to let user see 100%
   }
 
   function handleInterrupt() {
@@ -367,6 +632,70 @@ export default function ScreenerPage() {
             </Card>
             
             <div className="space-y-8">
+                {/* AI Provider Selection Card */}
+                <Card className="w-full">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Settings className="text-secondary" />
+                            AI Provider
+                        </CardTitle>
+                        <CardDescription>Choose your AI provider for article classification.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div>
+                            <label className="text-sm font-medium mb-2 block">Provider</label>
+                            <Select value={aiProvider} onValueChange={handleProviderChange}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="gemini">Google Gemini (Cloud)</SelectItem>
+                                    <SelectItem value="ollama">Ollama (Local)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        
+                        {aiProvider === 'ollama' && (
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">Ollama Model</label>
+                                <Select 
+                                    value={selectedOllamaModel} 
+                                    onValueChange={handleOllamaModelChange}
+                                    disabled={isLoadingModels}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder={isLoadingModels ? "Loading models..." : "Select a model"} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {ollamaModels.map((model) => (
+                                            <SelectItem key={model.model} value={model.model}>
+                                                <div className="flex flex-col">
+                                                    <span>{model.model}</span>
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {model.details?.parameter_size} • {model.details?.quantization_level}
+                                                    </span>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                {ollamaModels.length === 0 && !isLoadingModels && (
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                        No models found. Make sure Ollama is running with downloaded models.
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="text-xs text-muted-foreground">
+                            {aiProvider === 'gemini' 
+                                ? "Using Google's Gemini API (requires internet connection)"
+                                : `Using local Ollama API via proxy (offline, timeout: 2min per article)`
+                            }
+                        </div>
+                    </CardContent>
+                </Card>
+
                 <Card className={`w-full transition-opacity duration-500 ${showDataCard ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2"><FlaskConical className="text-accent" />Load Articles</CardTitle>
@@ -394,7 +723,11 @@ export default function ScreenerPage() {
                 {showAnalysisButton && (
                     <div className="text-center transition-opacity duration-500">
                         <Button size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground" onClick={handleRunAnalysis}>
-                            <BrainCircuit className="mr-2 h-5 w-5" /> Run AI Analysis ({articles.length} Articles)
+                            <BrainCircuit className="mr-2 h-5 w-5" /> 
+                            Run AI Analysis ({articles.length} Articles)
+                            {aiProvider === 'ollama' && selectedOllamaModel && (
+                                <span className="ml-2 text-xs opacity-75">with {selectedOllamaModel}</span>
+                            )}
                         </Button>
                     </div>
                 )}
@@ -427,8 +760,8 @@ export default function ScreenerPage() {
                   <CardTitle>Classification Results</CardTitle>
                   <CardDescription>Review the AI's classification for each article.</CardDescription>
                 </div>
-                <Button onClick={() => exportToCsv(classifiedArticles, criteria!)} className="mt-4 md:mt-0">
-                  <FileDown className="mr-2 h-4 w-4" /> Export to CSV
+                <Button onClick={() => exportToXlsx(classifiedArticles, criteria!, originalArticleData)} className="mt-4 md:mt-0">
+                  <FileDown className="mr-2 h-4 w-4" /> Export to XLSX
                 </Button>
               </CardHeader>
               <CardContent>
@@ -467,4 +800,5 @@ export default function ScreenerPage() {
     </main>
   );
 }
+
 

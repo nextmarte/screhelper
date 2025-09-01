@@ -1,54 +1,81 @@
-import type { Article } from '@/lib/data';
-import type { ClassifyArticleOutput } from '@/ai/flows/classify-article';
+import * as XLSX from 'xlsx';
 
-interface ClassifiedArticle extends Article {
-    classification: ClassifyArticleOutput;
+interface ClassifiedArticle {
+  title: string;
+  abstract: string;
+  classification: {
+    include: boolean;
+    reason: string;
+    criterion: string;
+  };
+  originalData?: Record<string, any>;
 }
 
-function escapeCsvCell(cell: string): string {
-  if (cell.includes(',') || cell.includes('"') || cell.includes('\n')) {
-    return `"${cell.replace(/"/g, '""')}"`;
-  }
-  return cell;
+interface Criteria {
+  inclusion: string[];
+  exclusion: string[];
 }
 
-export function exportToCsv(articles: ClassifiedArticle[], criteria: {inclusion: string[], exclusion: string[]}) {
-  const headers = ['Title', 'Abstract', 'Classification', 'Reason', 'Criterion'];
-  const rows = articles.map(article => [
-    escapeCsvCell(article.title),
-    escapeCsvCell(article.abstract),
-    article.classification.include ? 'Include' : 'Exclude',
-    escapeCsvCell(article.classification.reason),
-    escapeCsvCell(article.classification.criterion),
-  ].join(','));
+export function exportToXlsx(
+  classifiedArticles: ClassifiedArticle[],
+  criteria: Criteria,
+  originalData?: Record<string, any>[]
+): void {
+  // Preparar os dados para exportação preservando todos os campos originais
+  const exportData = classifiedArticles.map(article => {
+    const originalRow = article.originalData || originalData?.find(original => 
+      original.title === article.title && original.abstract === article.abstract
+    ) || {};
 
-  const inclusionCriteria = criteria.inclusion.map(c => `- ${c}`).join('\n');
-  const exclusionCriteria = criteria.exclusion.map(c => `- ${c}`).join('\n');
+    return {
+      ...originalRow, // Preservar todos os campos originais
+      classification: article.classification.include ? 'Include' : 'Exclude',
+      reason: article.classification.reason,
+      criterion: article.classification.criterion,
+    };
+  });
 
-  const criteriaHeader = 'Applied Criteria';
-  const inclusionHeader = 'Inclusion Criteria';
-  const exclusionHeader = 'Exclusion Criteria';
+  // Criar uma nova planilha
+  const worksheet = XLSX.utils.json_to_sheet(exportData);
 
-  const csvContent = [
-    `${criteriaHeader}`,
-    `${inclusionHeader}`,
-    `"${inclusionCriteria}"`,
-    `${exclusionHeader}`,
-    `"${exclusionCriteria}"`,
-    '',
-    headers.join(','),
-    ...rows,
-  ].join('\n');
+  // Criar um novo workbook
+  const workbook = XLSX.utils.book_new();
+  
+  // Adicionar a planilha de resultados
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Classification Results');
 
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  if (link.download !== undefined) {
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'screhelper_classified_articles.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
+  // Criar planilha com os critérios utilizados
+  const criteriaData = [
+    { type: 'Inclusion Criteria', criteria: '' },
+    ...criteria.inclusion.map((criterion, index) => ({
+      type: `${index + 1}.`,
+      criteria: criterion
+    })),
+    { type: '', criteria: '' },
+    { type: 'Exclusion Criteria', criteria: '' },
+    ...criteria.exclusion.map((criterion, index) => ({
+      type: `${index + 1}.`,
+      criteria: criterion
+    }))
+  ];
+
+  const criteriaWorksheet = XLSX.utils.json_to_sheet(criteriaData);
+  XLSX.utils.book_append_sheet(workbook, criteriaWorksheet, 'Criteria Used');
+
+  // Gerar nome do arquivo com timestamp
+  const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+  const filename = `screhelper-results-${timestamp}.xlsx`;
+
+  // Baixar o arquivo
+  XLSX.writeFile(workbook, filename);
+}
+
+// Manter compatibilidade com código antigo (deprecated)
+export function exportToCsv(
+  classifiedArticles: ClassifiedArticle[],
+  criteria: Criteria,
+  originalData?: Record<string, any>[]
+): void {
+  console.warn('exportToCsv is deprecated, use exportToXlsx instead');
+  exportToXlsx(classifiedArticles, criteria, originalData);
 }

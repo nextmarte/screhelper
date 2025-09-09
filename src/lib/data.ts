@@ -1,6 +1,8 @@
 export interface Article {
   title: string;
   abstract: string;
+  doi?: string; // Adicionar campo DOI opcional
+  source?: string; // Adicionar campo source opcional
 }
 
 export const sampleArticles: Article[] = [

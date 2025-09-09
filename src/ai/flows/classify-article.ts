@@ -19,6 +19,10 @@ const ClassifyArticleInputSchema = z.object({
   exclusionCriteria: z
     .array(z.string())
     .describe('The exclusion criteria for classifying the article.'),
+  model: z
+    .string()
+    .optional()
+    .describe('The Gemini model to use for classification.'),
 });
 export type ClassifyArticleInput = z.infer<typeof ClassifyArticleInputSchema>;
 

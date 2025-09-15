@@ -9,6 +9,8 @@ import * as XLSX from 'xlsx';
 import { classifyArticle, ClassifyArticleOutput } from '@/ai/flows/classify-article';
 import { sampleArticles, type Article } from '@/lib/data';
 import { exportToXlsx } from '@/lib/csv';
+import { downloadBibTeX } from '@/lib/bibtex';
+import { ClassifiedArticle } from '@/types/article';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
@@ -19,7 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload, Ban, RotateCcw, Settings, ChevronDown, ChevronUp, Filter, RefreshCw, X } from 'lucide-react';
+import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload, Ban, RotateCcw, Settings, ChevronDown, ChevronUp, Filter, RefreshCw, X, BookText } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -29,13 +31,6 @@ const criteriaSchema = z.object({
 });
 
 type CriteriaFormValues = z.infer<typeof criteriaSchema>;
-
-interface ClassifiedArticle extends Article {
-  classification: ClassifyArticleOutput;
-  originalData?: Record<string, any>; // Adicionar para preservar dados originais
-}
-
-type AIProvider = 'gemini' | 'ollama' | 'deepseek';
 
 const GEMINI_MODELS = [
   { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
@@ -1185,6 +1180,44 @@ export default function ScreenerPage() {
   const showAnalysisButton = showDataCard && articles.length > 0 && !isLoading;
   const showResults = classifiedArticles.length > 0 && !isLoading;
 
+  // Função de exportação BibTeX (faltante)
+  function handleExportBibTeX() {
+    if (classifiedArticles.length === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Sem artigos para exportar',
+        description: 'Não há artigos classificados para exportar como BibTeX.'
+      });
+      return;
+    }
+
+    const includedCount = classifiedArticles.filter(a => a.classification.include).length;
+
+    if (includedCount === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Sem artigos incluídos',
+        description: 'Não há artigos classificados como "Include" para exportar como BibTeX.'
+      });
+      return;
+    }
+
+    try {
+      downloadBibTeX(classifiedArticles);
+      toast({
+        title: 'BibTeX exportado com sucesso',
+        description: `Arquivo BibTeX com ${includedCount} artigos incluídos foi gerado.`
+      });
+    } catch (error) {
+      console.error('Erro ao exportar BibTeX:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Erro na exportação',
+        description: 'Ocorreu um erro ao gerar o arquivo BibTeX. Verifique o console para mais detalhes.'
+      });
+    }
+  }
+
   return (
     <main className="container mx-auto p-4 md:p-8 space-y-8 font-body">
       <header className="text-center">
@@ -1516,9 +1549,19 @@ export default function ScreenerPage() {
                       </div>
                     </CardDescription>
                   </div>
-                  <Button onClick={() => exportToXlsx(classifiedArticles, criteria!, originalArticleData)} className="mt-4 md:mt-0">
-                    <FileDown className="mr-2 h-4 w-4" /> Export to XLSX
-                  </Button>
+                  <div className="flex gap-2 mt-4 md:mt-0">
+                    <Button 
+                      onClick={handleExportBibTeX} 
+                      variant="outline"
+                      className="flex items-center"
+                      disabled={classifiedArticles.filter(a => a.classification.include).length === 0}
+                    >
+                      <BookText className="mr-2 h-4 w-4" /> Export BibTeX
+                    </Button>
+                    <Button onClick={() => exportToXlsx(classifiedArticles, criteria!, originalArticleData)}>
+                      <FileDown className="mr-2 h-4 w-4" /> Export to XLSX
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
 

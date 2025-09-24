@@ -21,7 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload, Ban, RotateCcw, Settings, ChevronDown, ChevronUp, Filter, RefreshCw, X, BookText } from 'lucide-react';
+import { PlusCircle, XCircle, FlaskConical, FileDown, TestTube2, BrainCircuit, Upload, Ban, RotateCcw, Settings, ChevronDown, ChevronUp, Filter, RefreshCw, X, BookText, BarChart3, PieChart, TrendingUp, Calendar, Users, FileText } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -46,6 +46,7 @@ const DEEPSEEK_MODELS = [
 
 type GeminiModel = typeof GEMINI_MODELS[number]['value'];
 type DeepSeekModel = typeof DEEPSEEK_MODELS[number]['value'];
+type AIProvider = 'gemini' | 'ollama' | 'deepseek';
 
 interface OllamaModel {
   model: string;
@@ -401,6 +402,119 @@ export default function ScreenerPage() {
   // Novos estados para filtros
   const [filterClassification, setFilterClassification] = useState<'all' | 'include' | 'exclude'>('all');
   const [filterCriterion, setFilterCriterion] = useState<string>('all');
+
+  // Dados bibliométricos calculados
+  const bibliometricData = useMemo(() => {
+    if (classifiedArticles.length === 0) return null;
+
+    // Análise por ano (extrair do DOI, título ou dados originais)
+    const yearDistribution = new Map<string, { total: number; included: number; excluded: number }>();
+    
+    // Análise por fonte/journal
+    const sourceDistribution = new Map<string, { total: number; included: number; excluded: number }>();
+    
+    // Análise por palavras-chave do título
+    const keywordFrequency = new Map<string, number>();
+    
+    // Análise temporal de publicações
+    const publicationTrends = new Map<string, number>();
+
+    classifiedArticles.forEach(article => {
+      // Extrair ano - tentar múltiplas fontes
+      let year = 'Unknown';
+      
+      // Tentar extrair do DOI
+      const doiYearMatch = article.doi?.match(/(\d{4})/);
+      if (doiYearMatch) {
+        year = doiYearMatch[1];
+      } else {
+        // Tentar extrair do título
+        const titleYearMatch = article.title.match(/\b(19|20)\d{2}\b/);
+        if (titleYearMatch) {
+          year = titleYearMatch[0];
+        } else if (article.originalData) {
+          // Tentar dados originais
+          const possibleYearFields = ['year', 'publication_year', 'date', 'published'];
+          for (const field of possibleYearFields) {
+            if (article.originalData[field]) {
+              const yearValue = String(article.originalData[field]).match(/\b(19|20)\d{2}\b/);
+              if (yearValue) {
+                year = yearValue[0];
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // Atualizar distribuição por ano
+      const yearStats = yearDistribution.get(year) || { total: 0, included: 0, excluded: 0 };
+      yearStats.total++;
+      if (article.classification.include) {
+        yearStats.included++;
+      } else {
+        yearStats.excluded++;
+      }
+      yearDistribution.set(year, yearStats);
+
+      // Análise por fonte
+      const source = article.source || 'Unknown Source';
+      const sourceStats = sourceDistribution.get(source) || { total: 0, included: 0, excluded: 0 };
+      sourceStats.total++;
+      if (article.classification.include) {
+        sourceStats.included++;
+      } else {
+        sourceStats.excluded++;
+      }
+      sourceDistribution.set(source, sourceStats);
+
+      // Análise de palavras-chave do título
+      const words = article.title.toLowerCase()
+        .replace(/[^\w\s]/g, ' ')
+        .split(/\s+/)
+        .filter(word => word.length > 3 && !['with', 'from', 'this', 'that', 'they', 'them', 'were', 'been', 'have', 'will', 'would', 'could', 'should'].includes(word));
+      
+      words.forEach(word => {
+        keywordFrequency.set(word, (keywordFrequency.get(word) || 0) + 1);
+      });
+
+      // Tendências de publicação
+      if (year !== 'Unknown') {
+        publicationTrends.set(year, (publicationTrends.get(year) || 0) + 1);
+      }
+    });
+
+    // Converter Maps para arrays ordenados
+    const yearData = Array.from(yearDistribution.entries())
+      .map(([year, stats]) => ({ year, ...stats }))
+      .sort((a, b) => a.year.localeCompare(b.year));
+
+    const sourceData = Array.from(sourceDistribution.entries())
+      .map(([source, stats]) => ({ source, ...stats }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10); // Top 10 sources
+
+    const topKeywords = Array.from(keywordFrequency.entries())
+      .map(([keyword, count]) => ({ keyword, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20);
+
+    const trendsData = Array.from(publicationTrends.entries())
+      .map(([year, count]) => ({ year, count }))
+      .sort((a, b) => a.year.localeCompare(b.year));
+
+    return {
+      yearDistribution: yearData,
+      sourceDistribution: sourceData,
+      keywordFrequency: topKeywords,
+      publicationTrends: trendsData,
+      totalArticles: classifiedArticles.length,
+      includedArticles: classifiedArticles.filter(a => a.classification.include).length,
+      excludedArticles: classifiedArticles.filter(a => !a.classification.include).length,
+      uniqueYears: yearData.length,
+      uniqueSources: sourceData.length
+    };
+  }, [classifiedArticles]);
 
   const form = useForm<CriteriaFormValues>({
     resolver: zodResolver(criteriaSchema),
@@ -1226,10 +1340,12 @@ export default function ScreenerPage() {
       </header>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="setup">Setup</TabsTrigger>
           <TabsTrigger value="results" disabled={classifiedArticles.length === 0}>Results</TabsTrigger>
+          <TabsTrigger value="analytics" disabled={classifiedArticles.length === 0}>Analytics</TabsTrigger>
         </TabsList>
+        
         <TabsContent value="setup" className="space-y-8 mt-8">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
             <Card className="w-full">
@@ -1880,6 +1996,7 @@ export default function ScreenerPage() {
           </SelectItem>
         ))}
         
+        
         {/* Opções personalizadas */}
         <div className="px-2 py-1.5 text-xs font-semibold text-gray-700 bg-gray-50 border-b border-t">
           Manual Classifications
@@ -1980,6 +2097,319 @@ export default function ScreenerPage() {
                       Start Analysis
                     </Button>
                   )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+        <TabsContent value="analytics" className="mt-8">
+          {bibliometricData && (
+            <div className="space-y-6">
+              {/* Header com estatísticas gerais */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="text-blue-600" />
+                    Bibliometric Analytics Dashboard
+                  </CardTitle>
+                  <CardDescription>
+                    Comprehensive analysis of your article collection and classification results
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="text-center p-4 bg-blue-50 rounded-lg border">
+                      <div className="text-2xl font-bold text-blue-600">{bibliometricData.totalArticles}</div>
+                      <div className="text-sm text-muted-foreground">Total Articles</div>
+                    </div>
+                    <div className="text-center p-4 bg-green-50 rounded-lg border">
+                      <div className="text-2xl font-bold text-green-600">{bibliometricData.includedArticles}</div>
+                      <div className="text-sm text-muted-foreground">Included</div>
+                    </div>
+                    <div className="text-center p-4 bg-red-50 rounded-lg border">
+                      <div className="text-2xl font-bold text-red-600">{bibliometricData.excludedArticles}</div>
+                      <div className="text-sm text-muted-foreground">Excluded</div>
+                    </div>
+                    <div className="text-center p-4 bg-purple-50 rounded-lg border">
+                      <div className="text-2xl font-bold text-purple-600">
+                        {bibliometricData.totalArticles > 0 
+                          ? ((bibliometricData.includedArticles / bibliometricData.totalArticles) * 100).toFixed(1)
+                          : '0.0'
+                        }%
+                      </div>
+                      <div className="text-sm text-muted-foreground">Inclusion Rate</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Distribuição por Ano */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Calendar className="h-5 w-5 text-blue-500" />
+                      Publication Year Distribution
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {bibliometricData.yearDistribution.slice(0, 10).map((item) => (
+                        <div key={item.year} className="space-y-1">
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="font-medium">{item.year}</span>
+                            <span className="text-muted-foreground">{item.total} articles</span>
+                          </div>
+                          <div className="flex gap-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div 
+                              className="bg-green-500 h-full"
+                              style={{ width: `${(item.included / item.total) * 100}%` }}
+                              title={`${item.included} included`}
+                            />
+                            <div 
+                              className="bg-red-500 h-full"
+                              style={{ width: `${(item.excluded / item.total) * 100}%` }}
+                              title={`${item.excluded} excluded`}
+                            />
+                          </div>
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>Included: {item.included}</span>
+                            <span>Excluded: {item.excluded}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Top Sources/Journals */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-green-500" />
+                      Top Publication Sources
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {bibliometricData.sourceDistribution.slice(0, 8).map((item, index) => (
+                        <div key={item.source} className="space-y-1">
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="font-medium truncate flex-1 mr-2" title={item.source}>
+                              #{index + 1} {item.source}
+                            </span>
+                            <span className="text-muted-foreground whitespace-nowrap">{item.total}</span>
+                          </div>
+                          <div className="flex gap-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div 
+                              className="bg-green-500 h-full"
+                              style={{ width: `${(item.included / item.total) * 100}%` }}
+                            />
+                            <div 
+                              className="bg-red-500 h-full"
+                              style={{ width: `${(item.excluded / item.total) * 100}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>Inc: {item.included}</span>
+                            <span>Exc: {item.excluded}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Palavra-chave mais frequentes */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <TrendingUp className="h-5 w-5 text-purple-500" />
+                      Most Frequent Keywords in Titles
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-2">
+                      {bibliometricData.keywordFrequency.slice(0, 16).map((item, index) => (
+                        <div key={item.keyword} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                          <span className="font-medium truncate flex-1">{item.keyword}</span>
+                          <Badge variant="outline" className="ml-2">
+                            {item.count}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Tendências de Publicação */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <TrendingUp className="h-5 w-5 text-orange-500" />
+                      Publication Trends
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {bibliometricData.publicationTrends.map((item) => {
+                        const maxCount = Math.max(...bibliometricData.publicationTrends.map(t => t.count));
+                        const percentage = (item.count / maxCount) * 100;
+                        
+                        return (
+                          <div key={item.year} className="space-y-1">
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="font-medium">{item.year}</span>
+                              <span className="text-muted-foreground">{item.count} publications</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div 
+                                className="bg-gradient-to-r from-orange-400 to-orange-600 h-2 rounded-full transition-all duration-500"
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Resumo estatístico detalhado */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <PieChart className="h-5 w-5 text-indigo-500" />
+                    Statistical Summary
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Coverage</h4>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm">Unique Years:</span>
+                          <span className="font-medium">{bibliometricData.uniqueYears}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm">Unique Sources:</span>
+                          <span className="font-medium">{bibliometricData.uniqueSources}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm">Avg Articles/Year:</span>
+                          <span className="font-medium">
+                            {bibliometricData.uniqueYears > 0 
+                              ? (bibliometricData.totalArticles / bibliometricData.uniqueYears).toFixed(1)
+                              : '0'
+                            }
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Quality Metrics</h4>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm">Inclusion Rate:</span>
+                          <span className="font-medium text-green-600">
+                            {((bibliometricData.includedArticles / bibliometricData.totalArticles) * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm">Exclusion Rate:</span>
+                          <span className="font-medium text-red-600">
+                            {((bibliometricData.excludedArticles / bibliometricData.totalArticles) * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm">Most Productive Year:</span>
+                          <span className="font-medium">
+                            {bibliometricData.publicationTrends.length > 0
+                              ? bibliometricData.publicationTrends.reduce((max, current) => 
+                                  current.count > max.count ? current : max
+                                ).year
+                              : 'N/A'
+                            }
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Research Focus</h4>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm">Top Keyword:</span>
+                          <span className="font-medium">
+                            {bibliometricData.keywordFrequency.length > 0 
+                              ? bibliometricData.keywordFrequency[0].keyword
+                              : 'N/A'
+                            }
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm">Top Source:</span>
+                          <span className="font-medium truncate max-w-32" title={bibliometricData.sourceDistribution[0]?.source}>
+                            {bibliometricData.sourceDistribution.length > 0 
+                              ? bibliometricData.sourceDistribution[0].source
+                              : 'N/A'
+                            }
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm">Avg Words/Title:</span>
+                          <span className="font-medium">
+                            {(classifiedArticles.reduce((sum, article) => 
+                              sum + article.title.split(' ').length, 0
+                            ) / classifiedArticles.length).toFixed(1)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+                <CardFooter className="border-t pt-4">
+                  <div className="flex gap-2 w-full justify-center">
+                    <Button 
+                      onClick={handleExportBibTeX} 
+                      variant="outline"
+                      size="sm"
+                      disabled={bibliometricData.includedArticles === 0}
+                    >
+                      <BookText className="mr-2 h-4 w-4" /> Export Included Articles (BibTeX)
+                    </Button>
+                    <Button 
+                      onClick={() => exportToXlsx(classifiedArticles, criteria!, originalArticleData)}
+                      size="sm"
+                    >
+                      <FileDown className="mr-2 h-4 w-4" /> Export Full Analysis (XLSX)
+                    </Button>
+                  </div>
+                </CardFooter>
+              </Card>
+            </div>
+          )}
+
+          {!bibliometricData && (
+            <Card>
+              <CardContent className="text-center py-12">
+                <div className="space-y-4">
+                  <div className="text-muted-foreground">
+                    <BarChart3 className="mx-auto h-12 w-12 mb-4 opacity-50" />
+                    <h3 className="text-lg font-medium">No Analytics Data Available</h3>
+                    <p className="text-sm">
+                      Complete the article classification process to view bibliometric analytics.
+                    </p>
+                  </div>
+                  <Button 
+                    onClick={() => setActiveTab("setup")}
+                    variant="outline"
+                  >
+                    Go to Setup
+                  </Button>
                 </div>
               </CardContent>
             </Card>
